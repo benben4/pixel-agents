@@ -103,6 +103,7 @@ export function updateCharacter(
           ch.seatTimer -= dt
           break
         }
+        ch.seatTimer = 0 // clear sentinel
         ch.state = CharacterState.IDLE
         ch.frame = 0
         ch.frameTimer = 0
@@ -116,6 +117,7 @@ export function updateCharacter(
     case CharacterState.IDLE: {
       // No idle animation — static pose
       ch.frame = 0
+      if (ch.seatTimer < 0) ch.seatTimer = 0 // clear turn-end sentinel
       // If became active, pathfind to seat
       if (ch.isActive) {
         if (!ch.seatId) {
@@ -212,7 +214,13 @@ export function updateCharacter(
             if (seat && ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow) {
               ch.state = CharacterState.TYPE
               ch.dir = seat.facingDir
-              ch.seatTimer = randomRange(SEAT_REST_MIN_SEC, SEAT_REST_MAX_SEC)
+              // seatTimer < 0 is a sentinel from setAgentActive(false) meaning
+              // "turn just ended" — skip the long rest so idle transition is immediate
+              if (ch.seatTimer < 0) {
+                ch.seatTimer = 0
+              } else {
+                ch.seatTimer = randomRange(SEAT_REST_MIN_SEC, SEAT_REST_MAX_SEC)
+              }
               ch.wanderCount = 0
               ch.wanderLimit = randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX)
               ch.frame = 0

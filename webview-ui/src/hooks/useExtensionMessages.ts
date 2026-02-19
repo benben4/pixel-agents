@@ -8,6 +8,7 @@ import { setFloorSprites } from '../office/floorTiles.js'
 import { setWallSprites } from '../office/wallTiles.js'
 import { setCharacterTemplates } from '../office/sprites/spriteData.js'
 import { vscode } from '../vscodeApi.js'
+import { playDoneSound, setSoundEnabled } from '../notificationSound.js'
 
 export interface SubagentCharacter {
   id: number
@@ -224,6 +225,7 @@ export function useExtensionMessages(
         os.setAgentActive(id, status === 'active')
         if (status === 'waiting') {
           os.showWaitingBubble(id)
+          playDoneSound()
         }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id as number
@@ -325,6 +327,9 @@ export function useExtensionMessages(
         const sprites = msg.sprites as string[][][]
         console.log(`[Webview] Received ${sprites.length} wall tile sprites`)
         setWallSprites(sprites)
+      } else if (msg.type === 'settingsLoaded') {
+        const soundOn = msg.soundEnabled as boolean
+        setSoundEnabled(soundOn)
       } else if (msg.type === 'furnitureAssetsLoaded') {
         try {
           const catalog = msg.catalog as FurnitureAsset[]

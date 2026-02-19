@@ -86,6 +86,14 @@ export const DEFAULT_FLOOR_COLOR: FloorColor = { h: 35, s: 30, b: 15, c: 0 }
 export const DEFAULT_WALL_COLOR: FloorColor = { h: 240, s: 25, b: 0, c: 0 }
 export const DEFAULT_NEUTRAL_COLOR: FloorColor = { h: 0, s: 0, b: 0, c: 0 }
 
+// ── Notification Sound ──────────────────────────────────────
+export const NOTIFICATION_NOTE_1_HZ = 659.25   // E5
+export const NOTIFICATION_NOTE_2_HZ = 1318.51  // E6 (octave up)
+export const NOTIFICATION_NOTE_1_START_SEC = 0
+export const NOTIFICATION_NOTE_2_START_SEC = 0.1
+export const NOTIFICATION_NOTE_DURATION_SEC = 0.18
+export const NOTIFICATION_VOLUME = 0.14
+
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1
 export const WAITING_BUBBLE_DURATION_SEC = 2.0

@@ -3,12 +3,14 @@ import type * as vscode from 'vscode';
 import type { AgentState } from './types.js';
 import {
 	cancelWaitingTimer,
+	startWaitingTimer,
 	clearAgentActivity,
 	startPermissionTimer,
 	cancelPermissionTimer,
 } from './timerManager.js';
 import {
 	TOOL_DONE_DELAY_MS,
+	TEXT_IDLE_DELAY_MS,
 	BASH_COMMAND_DISPLAY_MAX_LENGTH,
 	TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,
 } from './constants.js';
@@ -86,9 +88,13 @@ export function processTranscriptLine(
 				if (hasNonExemptTool) {
 					startPermissionTimer(agentId, agents, permissionTimers, PERMISSION_EXEMPT_TOOLS, webview);
 				}
+			} else if (blocks.some(b => b.type === 'text')) {
+				// Text-only response (no tool_use). Could be intermediate (planning)
+				// or the final response. turn_duration handles tool-using turns but is
+				// never emitted for text-only turns, so we use a silence-based timer:
+				// if no new JSONL data arrives within TEXT_IDLE_DELAY_MS, mark as waiting.
+				startWaitingTimer(agentId, TEXT_IDLE_DELAY_MS, agents, waitingTimers, webview);
 			}
-			// Text-only assistant records (thinking, planning, intermediate text) are ignored
-			// for idle detection. Only turn_duration reliably signals turn end.
 		} else if (record.type === 'progress') {
 			processProgressRecord(agentId, record, agents, waitingTimers, permissionTimers, webview);
 		} else if (record.type === 'user') {

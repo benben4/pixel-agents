@@ -14,7 +14,7 @@ import {
 } from './agentManager.js';
 import { ensureProjectScan } from './fileWatcher.js';
 import { loadFurnitureAssets, sendAssetsToWebview, loadFloorTiles, sendFloorTilesToWebview, loadWallTiles, sendWallTilesToWebview, loadCharacterSprites, sendCharacterSpritesToWebview, loadDefaultLayout } from './assetLoader.js';
-import { WORKSPACE_KEY_AGENT_SEATS } from './constants.js';
+import { WORKSPACE_KEY_AGENT_SEATS, GLOBAL_KEY_SOUND_ENABLED } from './constants.js';
 import { writeLayoutToFile, readLayoutFromFile, watchLayoutFile } from './layoutPersistence.js';
 import type { LayoutWatcher } from './layoutPersistence.js';
 
@@ -87,6 +87,8 @@ export class ArcadiaViewProvider implements vscode.WebviewViewProvider {
 			} else if (message.type === 'saveLayout') {
 				this.layoutWatcher?.markOwnWrite();
 				writeLayoutToFile(message.layout as Record<string, unknown>);
+			} else if (message.type === 'setSoundEnabled') {
+				this.context.globalState.update(GLOBAL_KEY_SOUND_ENABLED, message.enabled);
 			} else if (message.type === 'webviewReady') {
 				restoreAgents(
 					this.context,
@@ -96,6 +98,10 @@ export class ArcadiaViewProvider implements vscode.WebviewViewProvider {
 					this.jsonlPollTimers, this.projectScanTimer, this.activeAgentId,
 					this.webview, this.persistAgents,
 				);
+				// Send persisted settings to webview
+				const soundEnabled = this.context.globalState.get<boolean>(GLOBAL_KEY_SOUND_ENABLED, true);
+				this.webview?.postMessage({ type: 'settingsLoaded', soundEnabled });
+
 				// Ensure project scan runs even with no restored agents (to adopt external terminals)
 				const projectDir = getProjectDirPath();
 				const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;

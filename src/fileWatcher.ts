@@ -59,7 +59,8 @@ export function readNewLines(
 
 		const hasLines = lines.some(l => l.trim());
 		if (hasLines) {
-			// New data arriving — cancel permission timer (data flowing means not stuck on permission)
+			// New data arriving — cancel timers (data flowing means agent is still active)
+			cancelWaitingTimer(agentId, waitingTimers);
 			cancelPermissionTimer(agentId, permissionTimers);
 			if (agent.permissionSent) {
 				agent.permissionSent = false;

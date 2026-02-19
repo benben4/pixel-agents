@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { vscode } from '../vscodeApi.js'
+import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -25,6 +26,7 @@ const menuItemBase: React.CSSProperties = {
 
 export function SettingsModal({ isOpen, onClose, isDebugMode, onToggleDebugMode }: SettingsModalProps) {
   const [hovered, setHovered] = useState<string | null>(null)
+  const [soundLocal, setSoundLocal] = useState(isSoundEnabled)
 
   if (!isOpen) return null
 
@@ -131,6 +133,40 @@ export function SettingsModal({ isOpen, onClose, isDebugMode, onToggleDebugMode 
           }}
         >
           Import Layout
+        </button>
+        <button
+          onClick={() => {
+            const newVal = !isSoundEnabled()
+            setSoundEnabled(newVal)
+            setSoundLocal(newVal)
+            vscode.postMessage({ type: 'setSoundEnabled', enabled: newVal })
+          }}
+          onMouseEnter={() => setHovered('sound')}
+          onMouseLeave={() => setHovered(null)}
+          style={{
+            ...menuItemBase,
+            background: hovered === 'sound' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          <span>Sound Notifications</span>
+          <span
+            style={{
+              width: 14,
+              height: 14,
+              border: '2px solid rgba(255, 255, 255, 0.5)',
+              borderRadius: 0,
+              background: soundLocal ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              lineHeight: 1,
+              color: '#fff',
+            }}
+          >
+            {soundLocal ? 'X' : ''}
+          </span>
         </button>
         <button
           onClick={onToggleDebugMode}

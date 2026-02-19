@@ -474,6 +474,13 @@ export class OfficeState {
     const ch = this.characters.get(id)
     if (ch) {
       ch.isActive = active
+      if (!active) {
+        // Sentinel -1: signals turn just ended, skip next seat rest timer.
+        // Prevents the WALK handler from setting a 2-4 min rest on arrival.
+        ch.seatTimer = -1
+        ch.path = []
+        ch.moveProgress = 0
+      }
       this.rebuildFurnitureInstances()
     }
   }

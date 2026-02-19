@@ -9,6 +9,7 @@ import { CAMERA_FOLLOW_LERP, CAMERA_FOLLOW_SNAP_THRESHOLD, ZOOM_MIN, ZOOM_MAX } 
 import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js'
 import { canPlaceFurniture, getWallPlacementRow } from '../editor/editorActions.js'
 import { vscode } from '../../vscodeApi.js'
+import { unlockAudio } from '../../notificationSound.js'
 
 interface OfficeCanvasProps {
   officeState: OfficeState
@@ -380,6 +381,7 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      unlockAudio()
       // Middle mouse button (button 1) starts panning
       if (e.button === 1) {
         e.preventDefault()

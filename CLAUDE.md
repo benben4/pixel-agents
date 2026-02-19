@@ -18,7 +18,8 @@ src/                          — Extension backend (Node.js, VS Code API)
   types.ts                    — Shared interfaces (AgentState, PersistedAgent)
 
 webview-ui/src/               — React + TypeScript (Vite)
-  constants.ts                — All webview magic numbers/strings (grid, animation, rendering, camera, zoom, editor, game logic)
+  constants.ts                — All webview magic numbers/strings (grid, animation, rendering, camera, zoom, editor, game logic, notification sound)
+  notificationSound.ts        — Web Audio API chime on agent turn completion, with enable/disable
   App.tsx                     — Composition root, hooks + components + EditActionBar
   hooks/
     useExtensionMessages.ts   — Message handler + agent/tool state
@@ -27,7 +28,7 @@ webview-ui/src/               — React + TypeScript (Vite)
   components/
     BottomToolbar.tsx          — + Agent, Layout toggle, Settings button
     ZoomControls.tsx           — +/- zoom (top-right)
-    SettingsModal.tsx          — Centered modal: settings, export/import layout, debug toggle
+    SettingsModal.tsx          — Centered modal: settings, export/import layout, sound toggle, debug toggle
     DebugView.tsx              — Debug overlay
   office/
     types.ts                  — Interfaces (OfficeLayout, FloorColor, Character, etc.) + re-exports constants from constants.ts
@@ -72,7 +73,7 @@ scripts/                      — 7-stage asset extraction pipeline
 
 **Vocabulary**: Terminal = VS Code terminal running Claude. Session = JSONL conversation file. Agent = webview character bound 1:1 to a terminal.
 
-**Extension ↔ Webview**: `postMessage` protocol. Key messages: `openClaude`, `agentCreated/Closed`, `focusAgent`, `agentToolStart/Done/Clear`, `agentStatus`, `existingAgents`, `layoutLoaded`, `furnitureAssetsLoaded`, `floorTilesLoaded`, `wallTilesLoaded`, `saveLayout`, `saveAgentSeats`, `exportLayout`, `importLayout`.
+**Extension ↔ Webview**: `postMessage` protocol. Key messages: `openClaude`, `agentCreated/Closed`, `focusAgent`, `agentToolStart/Done/Clear`, `agentStatus`, `existingAgents`, `layoutLoaded`, `furnitureAssetsLoaded`, `floorTilesLoaded`, `wallTilesLoaded`, `saveLayout`, `saveAgentSeats`, `exportLayout`, `importLayout`, `settingsLoaded`, `setSoundEnabled`.
 
 **One-agent-per-terminal**: Each "+ Agent" click → new terminal (`claude --session-id <uuid>`) → immediate agent creation → 1s poll for `<uuid>.jsonl` → file watching starts.
 
@@ -103,6 +104,8 @@ JSONL transcripts at `~/.claude/projects/<project-hash>/<session-id>.jsonl`. Pro
 **Sub-agents**: Negative IDs (from -1 down). Created on `agentToolStart` with "Subtask:" prefix. Same palette + hueShift as parent. Click focuses parent terminal. Not persisted. Spawn at closest free seat to parent (Manhattan distance); fallback: closest walkable tile. **Sub-agent permission detection**: when a sub-agent runs a non-exempt tool, `startPermissionTimer` fires on the parent agent; if 5s elapse with no data, permission bubbles appear on both parent and sub-agent characters. `activeSubagentToolNames` (parentToolId → subToolId → toolName) tracks which sub-tools are active for the exempt check. Cleared when data resumes or Task completes.
 
 **Speech bubbles**: Permission ("..." amber dots) stays until clicked/cleared. Waiting (green checkmark) auto-fades 2s. Sprites in `spriteData.ts`.
+
+**Sound notifications**: Ascending two-note chime (E5 → E6) via Web Audio API plays when waiting bubble appears (`agentStatus: 'waiting'`). `notificationSound.ts` manages AudioContext lifecycle; `unlockAudio()` called on canvas mousedown to ensure context is resumed (webviews start suspended). Toggled via "Sound Notifications" checkbox in Settings modal. Enabled by default; persisted in extension `globalState` key `arcadia.soundEnabled`, sent to webview as `settingsLoaded` on init.
 
 **Seats**: Derived from chair furniture. `layoutToSeats()` creates a seat at every footprint tile of every chair. Multi-tile chairs (e.g. 2-tile couches) produce multiple seats keyed `uid` / `uid:1` / `uid:2`. Facing direction priority: 1) chair `orientation` from catalog (front→DOWN, back→UP, left→LEFT, right→RIGHT), 2) adjacent desk direction, 3) forward (DOWN). Click character → select (white outline) → click available seat → reassign.
 
@@ -159,7 +162,7 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 - `fs.watch` unreliable on Windows — always pair with polling backup
 - Partial line buffering essential for append-only file reads (carry unterminated lines)
 - Delay `agentToolDone` 300ms to prevent React batching from hiding brief active states
-- JSONL text-only assistant records are ~89% intermediate (followed by tool_use) — NEVER use them for idle detection. Idle detection relies solely on `system` + `subtype: "turn_duration"` which appears exactly once per completed turn, immediately after the final assistant message. `turn_duration` handler clears all tool state as safety measure. No fallback timer — terminal close handles agent crashes
+- **Idle detection** has two signals: (1) `system` + `subtype: "turn_duration"` — reliable for tool-using turns (~98%), emitted once per completed turn, handler clears all tool state as safety measure. (2) Text-idle timer (`TEXT_IDLE_DELAY_MS = 5s`) — for text-only turns where `turn_duration` is never emitted. Started on text-only assistant records (no tool_use/thinking blocks); cancelled by ANY new JSONL data arriving in `readNewLines`. Only fires after 5s of complete file silence. ~15% false positive rate on intermediate pauses, but recovery is quick (tool_use re-activates agent). JSONL text-only assistant records are ~88% intermediate (followed by tool_use) — the silence-based cancellation prevents most false positives
 - User prompt `content` can be string (text) or array (tool_results) — handle both
 - `/clear` creates NEW JSONL file (old file just stops)
 - `--output-format stream-json` needs non-TTY stdin — can't use with VS Code terminals

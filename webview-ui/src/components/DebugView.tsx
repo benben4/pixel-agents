@@ -147,7 +147,7 @@ export function DebugView({
                     flexShrink: 0,
                   }}
                 />
-                Waiting for input
+                Might be waiting for input
               </span>
             )}
           </div>
