@@ -12,6 +12,8 @@ In short:
 - This fork: Tauri desktop-first (VS Code integration still exists)
 - This fork also adds multi-source monitoring support for **OpenCode** and **Codex** (in addition to ClaudeCode)
 
+![Main Difference From Upstream](compare.jpg)
+
 Pixel Agents turns AI coding workers into animated pixel-art characters in a virtual office. Each worker is represented by a character that can walk, sit, type, read, and wait based on live activity.
 
 ![Pixel Agents screenshot](webview-ui/public/Screenshot.jpg)
