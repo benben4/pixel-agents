@@ -1,4 +1,4 @@
-import { TILE_SIZE, MATRIX_EFFECT_DURATION, CharacterState, Direction } from '../types.js'
+import { TILE_SIZE, MATRIX_EFFECT_DURATION, CharacterState, Direction, FurnitureType } from '../types.js'
 import {
   PALETTE_COUNT,
   HUE_SHIFT_MIN_DEG,
@@ -12,6 +12,7 @@ import {
   CHARACTER_SITTING_OFFSET_PX,
   CHARACTER_HIT_HALF_WIDTH,
   CHARACTER_HIT_HEIGHT,
+  SUBAGENT_DISCUSSION_OFFSETS,
 } from '../../constants.js'
 import type { Character, Seat, FurnitureInstance, TileType as TileTypeVal, OfficeLayout, PlacedFurniture } from '../types.js'
 import { createCharacter, updateCharacter } from './characters.js'
@@ -33,6 +34,7 @@ export class OfficeState {
   blockedTiles: Set<string>
   furniture: FurnitureInstance[]
   walkableTiles: Array<{ col: number; row: number }>
+  breakTiles: Array<{ col: number; row: number }>
   characters: Map<number, Character> = new Map()
   selectedAgentId: number | null = null
   cameraFollowId: number | null = null
@@ -51,6 +53,7 @@ export class OfficeState {
     this.blockedTiles = getBlockedTiles(this.layout.furniture)
     this.furniture = layoutToFurnitureInstances(this.layout.furniture)
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles)
+    this.breakTiles = this.buildBreakTiles()
   }
 
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
@@ -62,6 +65,7 @@ export class OfficeState {
     this.blockedTiles = getBlockedTiles(layout.furniture)
     this.rebuildFurnitureInstances()
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles)
+    this.breakTiles = this.buildBreakTiles()
 
     // Shift character positions when grid expands left/up
     if (shift && (shift.col !== 0 || shift.row !== 0)) {
@@ -138,6 +142,37 @@ export class OfficeState {
     ch.moveProgress = 0
   }
 
+  private buildBreakTiles(): Array<{ col: number; row: number }> {
+    const targets = new Set<string>()
+    for (const item of this.layout.furniture) {
+      if (item.type !== FurnitureType.COFFEE && item.type !== FurnitureType.COOLER) continue
+      const entry = getCatalogEntry(item.type)
+      const width = entry?.footprintW ?? 1
+      const height = entry?.footprintH ?? 1
+      for (let dr = 0; dr < height; dr++) {
+        for (let dc = 0; dc < width; dc++) {
+          const col = item.col + dc
+          const row = item.row + dr
+          const neighbors = [
+            { col: col + 1, row },
+            { col: col - 1, row },
+            { col, row: row + 1 },
+            { col, row: row - 1 },
+          ]
+          for (const tile of neighbors) {
+            if (isWalkable(tile.col, tile.row, this.tileMap, this.blockedTiles)) {
+              targets.add(`${tile.col},${tile.row}`)
+            }
+          }
+        }
+      }
+    }
+    return Array.from(targets).map((key) => {
+      const [col, row] = key.split(',').map((value) => Number(value))
+      return { col, row }
+    })
+  }
+
   getLayout(): OfficeLayout {
     return this.layout
   }
@@ -164,6 +199,37 @@ export class OfficeState {
       if (!seat.assigned) return uid
     }
     return null
+  }
+
+  private isTileOccupiedByCharacter(col: number, row: number): boolean {
+    for (const existing of this.characters.values()) {
+      if (existing.matrixEffect === 'despawn') continue
+      if (existing.tileCol === col && existing.tileRow === row) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private findSubagentDiscussionTile(parentCol: number, parentRow: number): { col: number; row: number } | null {
+    for (const offset of SUBAGENT_DISCUSSION_OFFSETS) {
+      const col = parentCol + offset.col
+      const row = parentRow + offset.row
+      if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) continue
+      if (this.isTileOccupiedByCharacter(col, row)) continue
+      return { col, row }
+    }
+    return null
+  }
+
+  private faceToward(ch: Character, targetCol: number, targetRow: number): void {
+    const dCol = targetCol - ch.tileCol
+    const dRow = targetRow - ch.tileRow
+    if (Math.abs(dCol) >= Math.abs(dRow)) {
+      ch.dir = dCol >= 0 ? Direction.RIGHT : Direction.LEFT
+      return
+    }
+    ch.dir = dRow >= 0 ? Direction.DOWN : Direction.UP
   }
 
   /**
@@ -364,31 +430,21 @@ export class OfficeState {
     const palette = parentCh ? parentCh.palette : 0
     const hueShift = parentCh ? parentCh.hueShift : 0
 
-    // Find the free seat closest to the parent agent
     const parentCol = parentCh ? parentCh.tileCol : 0
     const parentRow = parentCh ? parentCh.tileRow : 0
     const dist = (c: number, r: number) =>
       Math.abs(c - parentCol) + Math.abs(r - parentRow)
 
-    let bestSeatId: string | null = null
-    let bestDist = Infinity
-    for (const [uid, seat] of this.seats) {
-      if (!seat.assigned) {
-        const d = dist(seat.seatCol, seat.seatRow)
-        if (d < bestDist) {
-          bestDist = d
-          bestSeatId = uid
-        }
-      }
-    }
-
     let ch: Character
-    if (bestSeatId) {
-      const seat = this.seats.get(bestSeatId)!
-      seat.assigned = true
-      ch = createCharacter(id, palette, bestSeatId, seat, hueShift)
+    const discussionTile = this.findSubagentDiscussionTile(parentCol, parentRow)
+    if (discussionTile) {
+      ch = createCharacter(id, palette, null, null, hueShift)
+      ch.x = discussionTile.col * TILE_SIZE + TILE_SIZE / 2
+      ch.y = discussionTile.row * TILE_SIZE + TILE_SIZE / 2
+      ch.tileCol = discussionTile.col
+      ch.tileRow = discussionTile.row
+      this.faceToward(ch, parentCol, parentRow)
     } else {
-      // No seats — spawn at closest walkable tile to parent
       let spawn = { col: 1, row: 1 }
       if (this.walkableTiles.length > 0) {
         let closest = this.walkableTiles[0]
@@ -407,6 +463,7 @@ export class OfficeState {
       ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2
       ch.tileCol = spawn.col
       ch.tileRow = spawn.row
+      this.faceToward(ch, parentCol, parentRow)
     }
     ch.isSubagent = true
     ch.parentAgentId = parentAgentId
@@ -632,7 +689,7 @@ export class OfficeState {
 
       // Temporarily unblock own seat so character can pathfind to it
       this.withOwnSeatUnblocked(ch, () =>
-        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles)
+        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles, this.breakTiles)
       )
 
       // Tick bubble timer for waiting bubbles

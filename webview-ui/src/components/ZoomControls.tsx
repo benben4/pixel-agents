@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   ZOOM_MIN,
   ZOOM_MAX,
+  ZOOM_DEFAULT_DPR_FACTOR,
   ZOOM_LEVEL_FADE_DELAY_MS,
   ZOOM_LEVEL_HIDE_DELAY_MS,
   ZOOM_LEVEL_FADE_DURATION_SEC,
@@ -10,6 +11,8 @@ import {
 interface ZoomControlsProps {
   zoom: number
   onZoomChange: (zoom: number) => void
+  pipEnabled: boolean
+  onTogglePiP: () => void
 }
 
 const btnBase: React.CSSProperties = {
@@ -27,7 +30,7 @@ const btnBase: React.CSSProperties = {
   boxShadow: 'var(--pixel-shadow)',
 }
 
-export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
+export function ZoomControls({ zoom, onZoomChange, pipEnabled, onTogglePiP }: ZoomControlsProps) {
   const [hovered, setHovered] = useState<'minus' | 'plus' | null>(null)
   const [showLevel, setShowLevel] = useState(false)
   const [fadeOut, setFadeOut] = useState(false)
@@ -37,6 +40,7 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
 
   const minDisabled = zoom <= ZOOM_MIN
   const maxDisabled = zoom >= ZOOM_MAX
+  const defaultZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round((window.devicePixelRatio || 1) * ZOOM_DEFAULT_DPR_FACTOR)))
 
   // Show zoom level briefly when zoom changes
   useEffect(() => {
@@ -95,7 +99,6 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
         </div>
       )}
 
-      {/* Vertically stacked round buttons — top-left */}
       <div
         style={{
           position: 'absolute',
@@ -103,10 +106,16 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
           left: 8,
           zIndex: 'var(--pixel-controls-z)',
           display: 'flex',
-          flexDirection: 'column',
+          flexDirection: 'row',
+          alignItems: 'center',
           gap: 4,
+          background: 'var(--pixel-bg)',
+          border: '2px solid var(--pixel-border)',
+          boxShadow: 'var(--pixel-shadow)',
+          padding: '4px 6px',
         }}
       >
+        <div style={{ minWidth: 48, textAlign: 'center', fontSize: '18px', color: 'var(--pixel-text)' }}>{zoom}x</div>
         <button
           onClick={() => onZoomChange(zoom + 1)}
           disabled={maxDisabled}
@@ -142,6 +151,67 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
             <line x1="3" y1="9" x2="15" y2="9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </button>
+
+        <input
+          type="range"
+          min={ZOOM_MIN}
+          max={ZOOM_MAX}
+          step={1}
+          value={zoom}
+          onChange={(e) => onZoomChange(Number(e.target.value))}
+          aria-label="Zoom level"
+          style={{ width: 96 }}
+        />
+
+        <button
+          onClick={() => onZoomChange(defaultZoom)}
+          title="Reset zoom"
+          style={{
+            ...btnBase,
+            width: 48,
+            fontSize: '16px',
+          }}
+        >
+          Fit
+        </button>
+      </div>
+
+      <button
+        onClick={onTogglePiP}
+        title="Picture in picture"
+        style={{
+          ...btnBase,
+          position: 'absolute',
+          bottom: 44,
+          right: 8,
+          width: 68,
+          height: 40,
+          fontSize: '16px',
+          zIndex: 'var(--pixel-controls-z)',
+          background: pipEnabled ? 'var(--pixel-btn-hover-bg)' : btnBase.background,
+        }}
+      >
+        PiP
+      </button>
+
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 8,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 'var(--pixel-controls-z)',
+          fontSize: '14px',
+          padding: '2px 8px',
+          color: 'var(--pixel-text-dim)',
+          background: 'var(--pixel-bg)',
+          border: '1px solid var(--pixel-border)',
+          boxShadow: 'var(--pixel-shadow)',
+          pointerEvents: 'none',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Scroll to zoom · Hold Alt + Scroll to pan
       </div>
     </>
   )

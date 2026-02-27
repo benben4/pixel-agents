@@ -7,3 +7,8 @@ node_modules
 /logs
 /sprites-export
 .env
+
+# Local/system artifacts
+.DS_Store
+output/
+webview-ui/src-tauri/target/

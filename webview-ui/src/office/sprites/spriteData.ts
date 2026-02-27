@@ -1,9 +1,69 @@
 import type { Direction, SpriteData, FloorColor } from '../types.js'
 import { Direction as Dir } from '../types.js'
 import { adjustSprite } from '../colorize.js'
+import {
+  SPRITE_DETAIL_EDGE_DARKEN,
+  SPRITE_DETAIL_INTERIOR_LIGHTEN,
+  SPRITE_DETAIL_TOP_HIGHLIGHT,
+  SPRITE_DETAIL_DITHER_MODULO,
+} from '../../constants.js'
 
 // ── Color Palettes ──────────────────────────────────────────────
 const _ = '' // transparent
+
+const detailCache = new WeakMap<SpriteData, SpriteData>()
+
+function clampChannel(value: number): number {
+  if (value < 0) return 0
+  if (value > 255) return 255
+  return value
+}
+
+function adjustHex(hex: string, delta: number): string {
+  const r = clampChannel(parseInt(hex.slice(1, 3), 16) + delta)
+  const g = clampChannel(parseInt(hex.slice(3, 5), 16) + delta)
+  const b = clampChannel(parseInt(hex.slice(5, 7), 16) + delta)
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase()
+}
+
+export function detailizeSprite(sprite: SpriteData): SpriteData {
+  const cached = detailCache.get(sprite)
+  if (cached) return cached
+
+  const rows = sprite.length
+  const cols = rows > 0 ? sprite[0].length : 0
+  const out = sprite.map((row) => [...row])
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const color = sprite[r][c]
+      if (color === '') continue
+
+      const up = r > 0 ? sprite[r - 1][c] : ''
+      const down = r + 1 < rows ? sprite[r + 1][c] : ''
+      const left = c > 0 ? sprite[r][c - 1] : ''
+      const right = c + 1 < cols ? sprite[r][c + 1] : ''
+      const cardinalTransparent = Number(up === '') + Number(down === '') + Number(left === '') + Number(right === '')
+
+      let delta = 0
+      if (cardinalTransparent > 0) {
+        delta -= SPRITE_DETAIL_EDGE_DARKEN
+        if (up === '' && down !== '') {
+          delta += SPRITE_DETAIL_TOP_HIGHLIGHT
+        }
+      } else {
+        if ((r + c) % SPRITE_DETAIL_DITHER_MODULO === 0) {
+          delta += SPRITE_DETAIL_INTERIOR_LIGHTEN
+        }
+      }
+
+      out[r][c] = adjustHex(color, delta)
+    }
+  }
+
+  detailCache.set(sprite, out)
+  return out
+}
 
 // ── Furniture Sprites ───────────────────────────────────────────
 
@@ -241,6 +301,31 @@ export const PC_SPRITE: SpriteData = (() => {
     [_, _, _, _, _, _, D, D, D, D, _, _, _, _, _, _],
     [_, _, _, _, _, D, D, D, D, D, D, _, _, _, _, _],
     [_, _, _, _, _, D, D, D, D, D, D, _, _, _, _, _],
+    [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
+  ]
+})()
+
+export const COFFEE_MUG_SPRITE: SpriteData = (() => {
+  const C = '#7A4B2A'
+  const H = '#9C6240'
+  const M = '#CFA77A'
+  const O = '#3A2415'
+  return [
+    [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
+    [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
+    [_, _, _, _, _, _, C, C, C, C, _, _, _, _, _, _],
+    [_, _, _, _, _, C, H, H, H, H, C, _, _, _, _, _],
+    [_, _, _, _, C, H, M, M, M, M, H, C, _, _, _, _],
+    [_, _, _, _, C, H, M, O, O, M, H, C, C, _, _, _],
+    [_, _, _, _, C, H, M, O, O, M, H, C, H, C, _, _],
+    [_, _, _, _, C, H, M, O, O, M, H, C, H, C, _, _],
+    [_, _, _, _, C, H, M, O, O, M, H, C, C, _, _, _],
+    [_, _, _, _, C, H, M, M, M, M, H, C, _, _, _, _],
+    [_, _, _, _, _, C, H, H, H, H, C, _, _, _, _, _],
+    [_, _, _, _, _, _, C, C, C, C, _, _, _, _, _, _],
+    [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
+    [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
+    [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
     [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
   ]
 })()
@@ -1059,9 +1144,9 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
   if (loadedCharacters) {
     // Use pre-colored character sprites directly (no palette swapping)
     const char = loadedCharacters[paletteIndex % loadedCharacters.length]
-    const d = char.down
-    const u = char.up
-    const rt = char.right
+    const d = char.down.map((frame) => detailizeSprite(frame))
+    const u = char.up.map((frame) => detailizeSprite(frame))
+    const rt = char.right.map((frame) => detailizeSprite(frame))
     const flip = flipSpriteHorizontal
 
     sprites = {
@@ -1087,8 +1172,8 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
   } else {
     // Fallback: use hardcoded templates with palette swapping
     const pal = CHARACTER_PALETTES[paletteIndex % CHARACTER_PALETTES.length]
-    const r = (t: TemplateCell[][]) => resolveTemplate(t, pal)
-    const rf = (t: TemplateCell[][]) => resolveTemplate(flipHorizontal(t), pal)
+    const r = (t: TemplateCell[][]) => detailizeSprite(resolveTemplate(t, pal))
+    const rf = (t: TemplateCell[][]) => detailizeSprite(resolveTemplate(flipHorizontal(t), pal))
 
     sprites = {
       walk: {

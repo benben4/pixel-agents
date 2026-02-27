@@ -17,6 +17,13 @@ export const WANDER_MOVES_BEFORE_REST_MIN = 3
 export const WANDER_MOVES_BEFORE_REST_MAX = 6
 export const SEAT_REST_MIN_SEC = 120.0
 export const SEAT_REST_MAX_SEC = 240.0
+export const BREAK_ROOM_VISIT_CHANCE = 0.45
+export const COFFEE_BREAK_MIN_SEC = 6.0
+export const COFFEE_BREAK_MAX_SEC = 12.0
+export const SPRITE_DETAIL_EDGE_DARKEN = 24
+export const SPRITE_DETAIL_INTERIOR_LIGHTEN = 6
+export const SPRITE_DETAIL_TOP_HIGHLIGHT = 8
+export const SPRITE_DETAIL_DITHER_MODULO = 3
 
 // ── Matrix Effect ────────────────────────────────────────────
 export const MATRIX_EFFECT_DURATION_SEC = 0.3
@@ -80,6 +87,7 @@ export const ZOOM_LEVEL_HIDE_DELAY_MS = 2000
 export const ZOOM_LEVEL_FADE_DURATION_SEC = 0.5
 export const ZOOM_SCROLL_THRESHOLD = 50
 export const PAN_MARGIN_FRACTION = 0.25
+export const PAN_DRAG_START_THRESHOLD_PX = 4
 
 // ── Editor ───────────────────────────────────────────────────
 export const UNDO_STACK_MAX_SIZE = 50
@@ -111,3 +119,55 @@ export const CHARACTER_HIT_HALF_WIDTH = 8
 export const CHARACTER_HIT_HEIGHT = 24
 export const TOOL_OVERLAY_VERTICAL_OFFSET = 32
 export const PULSE_ANIMATION_DURATION_SEC = 1.5
+export const SUBAGENT_DISCUSSION_OFFSETS: Array<{ col: number; row: number }> = [
+  { col: -1, row: 0 },
+  { col: 1, row: 0 },
+  { col: 0, row: -1 },
+  { col: 0, row: 1 },
+  { col: -1, row: -1 },
+  { col: 1, row: -1 },
+  { col: -1, row: 1 },
+  { col: 1, row: 1 },
+  { col: -2, row: 0 },
+  { col: 2, row: 0 },
+  { col: 0, row: -2 },
+  { col: 0, row: 2 },
+]
+
+export const MONITOR_AGENT_ID_BASE = 1000000
+export const MONITOR_CHARACTER_LIMIT = 12
+export const MONITOR_AGENT_LABEL_FONT_DEFAULT_PX = 24
+export const MONITOR_AGENT_LABEL_FONT_MIN_PX = 14
+export const MONITOR_AGENT_LABEL_FONT_MAX_PX = 40
+export const MONITOR_TOAST_DURATION_MS = 10000
+export const TOOL_OVERLAY_REFRESH_MS = 80
+export const INFO_BOARD_REFRESH_MS = 120
+export const CHARACTER_ASSET_COUNT = 6
+export const CHARACTER_FRAME_WIDTH = 16
+export const CHARACTER_FRAME_HEIGHT = 32
+export const CHARACTER_FRAMES_PER_DIRECTION = 7
+export const PIP_WINDOW_WIDTH_PX = 560
+export const PIP_WINDOW_HEIGHT_PX = 360
+
+export const DEMO_WORK_ITEMS = [
+  'Architecting inference alignment framework.',
+  'Refactoring latency narrative cadence.',
+  'Operationalizing embedding synergy layer.',
+  'Orchestrating scalable uncertainty pipeline.',
+  'Distilling multi-modal KPI reassurance.',
+  'Unifying signal surfaces substrate.',
+  'Governing prompts, expanding narrative bandwidth.',
+  'Rolling out adaptive token economics.',
+  'Quantifying alignment drift and vibes.',
+  'Deploying self-healing data flywheel.',
+  'Calibrating confidence amplification matrix.',
+  'Harmonizing cross-model semantic parity.',
+  'Synthesizing roadmap-adjacent intelligence artifacts.',
+  'Optimizing throughput via intent clustering.',
+  'Rebaselining metrics for executive clarity.',
+  'De-risking edge cases proactively.',
+  'Packaging ambiguity into deliverables.',
+  'Instrumenting reality-aligned evaluation loops.',
+  'Streamlining hallucination containment protocols.',
+  'Enabling scalable narrative reliability.',
+] as const

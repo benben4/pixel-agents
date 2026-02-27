@@ -1,73 +1,41 @@
-# React + TypeScript + Vite
+# Pixel Agents Webview UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This package contains the React + TypeScript canvas UI used by both runtimes:
 
-Currently, two official plugins are available:
+- VS Code extension webview
+- Tauri desktop app webview
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Scripts
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
+npm run build
+npm run lint
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Desktop-only:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run tauri:dev
+npm run tauri:build
 ```
+
+## Runtime Notes
+
+- In extension mode, assets are loaded by the extension host and forwarded via `postMessage`.
+- In desktop mode, the webview bootstraps via Tauri commands and also loads character PNG sprites from `/assets/characters/char_*.png` when needed.
+- Character sprites are expected as 6 PNG sheets (`char_0.png` to `char_5.png`), each `112x96` with `7` frames across and `3` direction rows.
+
+## Asset Locations
+
+- Source assets: `webview-ui/public/assets/`
+- Character sprites: `webview-ui/public/assets/characters/`
+- Furniture sprites + catalog: `webview-ui/public/assets/furniture/`
+- Build output copy: `dist/assets/` and `dist/webview/assets/`
+
+## Editing Guidelines
+
+- Keep magic numbers in `webview-ui/src/constants.ts`.
+- Keep CSS color tokens in `webview-ui/src/index.css` (`:root` `--pixel-*` vars).
+- Use `as const` objects instead of TypeScript `enum`.

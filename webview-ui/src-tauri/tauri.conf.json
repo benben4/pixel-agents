@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pixel Agents Desktop",
+  "version": "0.1.0",
+  "identifier": "com.pixelagents.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../../dist/webview"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Pixel Agents Desktop",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}

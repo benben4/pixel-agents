@@ -409,9 +409,28 @@ export function useEditorActions(
       }
     } else if (editorState.activeTool === EditTool.ERASE) {
       if (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows) return
-      const idx = row * layout.cols + col
-      if (layout.tiles[idx] === TileType.VOID) return
-      const newLayout = paintTile(layout, col, row, TileType.VOID)
+      let nextLayout = layout
+      let hitFurniture: PlacedFurniture | null = null
+      for (const item of layout.furniture) {
+        const entry = getCatalogEntry(item.type)
+        if (!entry) continue
+        const coversTile = col >= item.col
+          && col < item.col + entry.footprintW
+          && row >= item.row
+          && row < item.row + entry.footprintH
+        if (!coversTile) continue
+        if (!hitFurniture || entry.canPlaceOnSurfaces) {
+          hitFurniture = item
+        }
+      }
+      if (hitFurniture) {
+        nextLayout = removeFurniture(nextLayout, hitFurniture.uid)
+      }
+      const idx = row * nextLayout.cols + col
+      if (nextLayout.tiles[idx] !== TileType.VOID) {
+        nextLayout = paintTile(nextLayout, col, row, TileType.VOID)
+      }
+      const newLayout = nextLayout
       if (newLayout !== layout) {
         applyEdit(newLayout)
       }
@@ -486,10 +505,28 @@ export function useEditorActions(
     const os = getOfficeState()
     const layout = os.getLayout()
     if (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows) return
-    const idx = row * layout.cols + col
-    // Only erase non-VOID tiles
-    if (layout.tiles[idx] === TileType.VOID) return
-    const newLayout = paintTile(layout, col, row, TileType.VOID)
+    let nextLayout = layout
+    let hitFurniture: PlacedFurniture | null = null
+    for (const item of layout.furniture) {
+      const entry = getCatalogEntry(item.type)
+      if (!entry) continue
+      const coversTile = col >= item.col
+        && col < item.col + entry.footprintW
+        && row >= item.row
+        && row < item.row + entry.footprintH
+      if (!coversTile) continue
+      if (!hitFurniture || entry.canPlaceOnSurfaces) {
+        hitFurniture = item
+      }
+    }
+    if (hitFurniture) {
+      nextLayout = removeFurniture(nextLayout, hitFurniture.uid)
+    }
+    const idx = row * nextLayout.cols + col
+    if (nextLayout.tiles[idx] !== TileType.VOID) {
+      nextLayout = paintTile(nextLayout, col, row, TileType.VOID)
+    }
+    const newLayout = nextLayout
     if (newLayout !== layout) {
       applyEdit(newLayout)
     }

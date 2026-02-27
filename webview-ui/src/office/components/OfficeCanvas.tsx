@@ -5,7 +5,15 @@ import type { EditorRenderState, SelectionRenderState, DeleteButtonBounds, Rotat
 import { startGameLoop } from '../engine/gameLoop.js'
 import { renderFrame } from '../engine/renderer.js'
 import { TILE_SIZE, EditTool } from '../types.js'
-import { CAMERA_FOLLOW_LERP, CAMERA_FOLLOW_SNAP_THRESHOLD, ZOOM_MIN, ZOOM_MAX, ZOOM_SCROLL_THRESHOLD, PAN_MARGIN_FRACTION } from '../../constants.js'
+import {
+  CAMERA_FOLLOW_LERP,
+  CAMERA_FOLLOW_SNAP_THRESHOLD,
+  ZOOM_MIN,
+  ZOOM_MAX,
+  ZOOM_SCROLL_THRESHOLD,
+  PAN_MARGIN_FRACTION,
+  PAN_DRAG_START_THRESHOLD_PX,
+} from '../../constants.js'
 import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js'
 import { canPlaceFurniture, getWallPlacementRow } from '../editor/editorActions.js'
 import { vscode } from '../../vscodeApi.js'
@@ -13,7 +21,7 @@ import { unlockAudio } from '../../notificationSound.js'
 
 interface OfficeCanvasProps {
   officeState: OfficeState
-  onClick: (agentId: number) => void
+  onClick: (agentId: number, anchor: { x: number; y: number }) => void
   isEditMode: boolean
   editorState: EditorState
   onEditorTileAction: (col: number, row: number) => void
@@ -32,8 +40,10 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const offsetRef = useRef({ x: 0, y: 0 })
-  // Middle-mouse pan state (imperative, no re-renders)
   const isPanningRef = useRef(false)
+  const panPrimaryHoldRef = useRef(false)
+  const panActivatedRef = useRef(false)
+  const suppressClickRef = useRef(false)
   const panStartRef = useRef({ mouseX: 0, mouseY: 0, panX: 0, panY: 0 })
   // Delete/rotate button bounds (updated each frame by renderer)
   const deleteButtonBoundsRef = useRef<DeleteButtonBounds | null>(null)
@@ -292,8 +302,21 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      // Handle middle-mouse panning
       if (isPanningRef.current) {
+        if (panPrimaryHoldRef.current && !panActivatedRef.current) {
+          const dragX = Math.abs(e.clientX - panStartRef.current.mouseX)
+          const dragY = Math.abs(e.clientY - panStartRef.current.mouseY)
+          if (dragX < PAN_DRAG_START_THRESHOLD_PX && dragY < PAN_DRAG_START_THRESHOLD_PX) {
+            return
+          }
+          panActivatedRef.current = true
+          suppressClickRef.current = true
+          officeState.cameraFollowId = null
+          const canvas = canvasRef.current
+          if (canvas) {
+            canvas.style.cursor = 'grabbing'
+          }
+        }
         const dpr = window.devicePixelRatio || 1
         const dx = (e.clientX - panStartRef.current.mouseX) * dpr
         const dy = (e.clientY - panStartRef.current.mouseY) * dpr
@@ -401,12 +424,14 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       unlockAudio()
-      // Middle mouse button (button 1) starts panning
       if (e.button === 1) {
         e.preventDefault()
+        isPanningRef.current = true
+        panPrimaryHoldRef.current = false
+        panActivatedRef.current = true
+        suppressClickRef.current = false
         // Break camera follow on manual pan
         officeState.cameraFollowId = null
-        isPanningRef.current = true
         panStartRef.current = {
           mouseX: e.clientX,
           mouseY: e.clientY,
@@ -415,6 +440,20 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
         }
         const canvas = canvasRef.current
         if (canvas) canvas.style.cursor = 'grabbing'
+        return
+      }
+
+      if (e.button === 0 && !isEditMode) {
+        isPanningRef.current = true
+        panPrimaryHoldRef.current = true
+        panActivatedRef.current = false
+        suppressClickRef.current = false
+        panStartRef.current = {
+          mouseX: e.clientX,
+          mouseY: e.clientY,
+          panX: panRef.current.x,
+          panY: panRef.current.y,
+        }
         return
       }
 
@@ -490,6 +529,19 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
     (e: React.MouseEvent) => {
       if (e.button === 1) {
         isPanningRef.current = false
+        panPrimaryHoldRef.current = false
+        panActivatedRef.current = false
+        suppressClickRef.current = false
+        const canvas = canvasRef.current
+        if (canvas) canvas.style.cursor = isEditMode ? 'crosshair' : 'default'
+        return
+      }
+      if (e.button === 0 && panPrimaryHoldRef.current) {
+        const didPan = panActivatedRef.current
+        isPanningRef.current = false
+        panPrimaryHoldRef.current = false
+        panActivatedRef.current = false
+        suppressClickRef.current = didPan
         const canvas = canvasRef.current
         if (canvas) canvas.style.cursor = isEditMode ? 'crosshair' : 'default'
         return
@@ -542,6 +594,10 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false
+        return
+      }
       if (isEditMode) return // handled by mouseDown/mouseUp
       const pos = screenToWorld(e.clientX, e.clientY)
       if (!pos) return
@@ -558,7 +614,7 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
           officeState.selectedAgentId = hitId
           officeState.cameraFollowId = hitId
         }
-        onClick(hitId) // still focus terminal
+        onClick(hitId, { x: pos.screenX, y: pos.screenY }) // still focus terminal
         return
       }
 
@@ -607,6 +663,9 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
 
   const handleMouseLeave = useCallback(() => {
     isPanningRef.current = false
+    panPrimaryHoldRef.current = false
+    panActivatedRef.current = false
+    suppressClickRef.current = false
     isEraseDraggingRef.current = false
     editorState.isDragging = false
     editorState.wallDragAdding = null
@@ -629,29 +688,29 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
     }
   }, [isEditMode, officeState, screenToTile])
 
-  // Wheel: Ctrl+wheel to zoom, plain wheel/trackpad to pan
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault()
-      if (e.ctrlKey || e.metaKey) {
-        // Accumulate scroll delta, step zoom when threshold crossed
-        zoomAccumulatorRef.current += e.deltaY
-        if (Math.abs(zoomAccumulatorRef.current) >= ZOOM_SCROLL_THRESHOLD) {
-          const delta = zoomAccumulatorRef.current < 0 ? 1 : -1
-          zoomAccumulatorRef.current = 0
-          const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom + delta))
-          if (newZoom !== zoom) {
-            onZoomChange(newZoom)
-          }
-        }
-      } else {
-        // Pan via trackpad two-finger scroll or mouse wheel
+      if (e.altKey) {
         const dpr = window.devicePixelRatio || 1
         officeState.cameraFollowId = null
         panRef.current = clampPan(
           panRef.current.x - e.deltaX * dpr,
           panRef.current.y - e.deltaY * dpr,
         )
+        return
+      }
+
+      const primaryDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+      const pinchScale = (e.ctrlKey || e.metaKey) ? 0.6 : 1
+      zoomAccumulatorRef.current += primaryDelta * pinchScale
+      if (Math.abs(zoomAccumulatorRef.current) >= ZOOM_SCROLL_THRESHOLD) {
+        const delta = zoomAccumulatorRef.current < 0 ? 1 : -1
+        zoomAccumulatorRef.current = 0
+        const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom + delta))
+        if (newZoom !== zoom) {
+          onZoomChange(newZoom)
+        }
       }
     },
     [zoom, onZoomChange, officeState, panRef, clampPan],

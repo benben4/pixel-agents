@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { OfficeState } from './office/engine/officeState.js'
 import { OfficeCanvas } from './office/components/OfficeCanvas.js'
 import { ToolOverlay } from './office/components/ToolOverlay.js'
@@ -8,12 +8,15 @@ import { EditTool } from './office/types.js'
 import { isRotatable } from './office/layout/furnitureCatalog.js'
 import { vscode } from './vscodeApi.js'
 import { useExtensionMessages } from './hooks/useExtensionMessages.js'
-import { PULSE_ANIMATION_DURATION_SEC } from './constants.js'
+import { MONITOR_AGENT_ID_BASE, PULSE_ANIMATION_DURATION_SEC } from './constants.js'
 import { useEditorActions } from './hooks/useEditorActions.js'
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js'
 import { ZoomControls } from './components/ZoomControls.js'
 import { BottomToolbar } from './components/BottomToolbar.js'
 import { DebugView } from './components/DebugView.js'
+import { MonitorDashboard } from './components/MonitorDashboard.js'
+import { MonitorToasts } from './components/MonitorToasts.js'
+import { CharacterInfoBoard } from './components/CharacterInfoBoard.js'
 
 // Game state lives outside React — updated imperatively by message handlers
 const officeStateRef = { current: null as OfficeState | null }
@@ -121,13 +124,37 @@ function App() {
 
   const isEditDirty = useCallback(() => editor.isEditMode && editor.isDirty, [editor.isEditMode, editor.isDirty])
 
-  const { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
+  const {
+    agents,
+    selectedAgent,
+    agentTools,
+    agentStatuses,
+    subagentTools,
+    subagentCharacters,
+    layoutReady,
+    loadedAssets,
+    monitorSnapshot,
+    monitorToasts,
+    dismissMonitorToast,
+    monitorSettings,
+    updateMonitorSettings,
+    demoMode,
+    updateDemoMode,
+    monitorCharacterIds,
+    monitorActivityById,
+  } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
 
   const [isDebugMode, setIsDebugMode] = useState(false)
+  const [characterBoardAnchor, setCharacterBoardAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [isPictureInPicture, setIsPictureInPicture] = useState(false)
+  const [pipFollowAgentId, setPipFollowAgentId] = useState<number | null>(null)
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), [])
 
   const handleSelectAgent = useCallback((id: number) => {
+    if (id >= MONITOR_AGENT_ID_BASE) {
+      return
+    }
     vscode.postMessage({ type: 'focusAgent', id })
   }, [])
 
@@ -150,7 +177,15 @@ function App() {
     vscode.postMessage({ type: 'closeAgent', id })
   }, [])
 
-  const handleClick = useCallback((agentId: number) => {
+  const handleOpenAgent = useCallback((source: 'claude' | 'opencode' | 'codex') => {
+    vscode.postMessage({ type: 'openAgent', source })
+  }, [])
+
+  const handleClick = useCallback((agentId: number, anchor: { x: number; y: number }) => {
+    setCharacterBoardAnchor(anchor)
+    if (agentId >= MONITOR_AGENT_ID_BASE) {
+      return
+    }
     // If clicked agent is a sub-agent, focus the parent's terminal instead
     const os = getOfficeState()
     const meta = os.subagentMeta.get(agentId)
@@ -159,6 +194,87 @@ function App() {
   }, [])
 
   const officeState = getOfficeState()
+
+  const pickPipAgent = useCallback((): number | null => {
+    const activeCharacters = officeState
+      .getCharacters()
+      .filter((ch) => !ch.isSubagent && ch.isActive)
+      .sort((a, b) => b.id - a.id)
+    if (activeCharacters.length === 0) {
+      return null
+    }
+
+    const selectedActive = selectedAgent === null || selectedAgent >= MONITOR_AGENT_ID_BASE
+      ? null
+      : activeCharacters.find((ch) => ch.id === selectedAgent)
+    if (selectedActive) {
+      return selectedActive.id
+    }
+
+    const primaryActive = activeCharacters.find((ch) => ch.id < MONITOR_AGENT_ID_BASE)
+    if (primaryActive) {
+      return primaryActive.id
+    }
+
+    const monitorActive = activeCharacters.find((ch) => {
+      if (ch.id < MONITOR_AGENT_ID_BASE) {
+        return false
+      }
+      const state = monitorActivityById[ch.id]?.state
+      return state === 'running' || state === 'thinking'
+    })
+    if (monitorActive) {
+      return monitorActive.id
+    }
+
+    return activeCharacters[0].id
+  }, [monitorActivityById, officeState, selectedAgent])
+
+  useEffect(() => {
+    vscode.postMessage({ type: 'setPictureInPicture', enabled: isPictureInPicture })
+  }, [isPictureInPicture])
+
+  useEffect(() => {
+    return () => {
+      vscode.postMessage({ type: 'setPictureInPicture', enabled: false })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isPictureInPicture) {
+      if (pipFollowAgentId !== null && officeState.cameraFollowId === pipFollowAgentId) {
+        officeState.cameraFollowId = null
+      }
+      if (pipFollowAgentId !== null) {
+        setPipFollowAgentId(null)
+      }
+      return
+    }
+
+    const nextFollowId = pickPipAgent()
+    if (nextFollowId === null) {
+      return
+    }
+
+    if (officeState.cameraFollowId !== nextFollowId) {
+      officeState.cameraFollowId = nextFollowId
+    }
+    if (officeState.selectedAgentId !== nextFollowId) {
+      officeState.selectedAgentId = nextFollowId
+    }
+    if (pipFollowAgentId !== nextFollowId) {
+      setPipFollowAgentId(nextFollowId)
+    }
+  }, [isPictureInPicture, officeState, pickPipAgent, pipFollowAgentId])
+
+  useEffect(() => {
+    if (!isPictureInPicture || monitorToasts.length === 0) {
+      return
+    }
+    for (const toast of monitorToasts) {
+      dismissMonitorToast(toast.id)
+    }
+  }, [dismissMonitorToast, isPictureInPicture, monitorToasts])
 
   // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
   void editorTickForKeyboard
@@ -210,7 +326,12 @@ function App() {
         panRef={editor.panRef}
       />
 
-      <ZoomControls zoom={editor.zoom} onZoomChange={editor.handleZoomChange} />
+      <ZoomControls
+        zoom={editor.zoom}
+        onZoomChange={editor.handleZoomChange}
+        pipEnabled={isPictureInPicture}
+        onTogglePiP={() => setIsPictureInPicture((prev) => !prev)}
+      />
 
       {/* Vignette overlay */}
       <div
@@ -225,10 +346,31 @@ function App() {
 
       <BottomToolbar
         isEditMode={editor.isEditMode}
-        onOpenClaude={editor.handleOpenClaude}
+        onOpenAgent={handleOpenAgent}
         onToggleEditMode={editor.handleToggleEditMode}
         isDebugMode={isDebugMode}
         onToggleDebugMode={handleToggleDebugMode}
+        monitorSettings={monitorSettings}
+        onUpdateMonitorSettings={updateMonitorSettings}
+        demoMode={demoMode}
+        onUpdateDemoMode={updateDemoMode}
+      />
+
+      {!isDebugMode && !isPictureInPicture && <MonitorDashboard snapshot={monitorSnapshot} agentLabelFontPx={monitorSettings.agentLabelFontPx} />}
+
+      {!isPictureInPicture && (
+        <MonitorToasts toasts={monitorToasts} onDismiss={dismissMonitorToast} agentLabelFontPx={monitorSettings.agentLabelFontPx} />
+      )}
+
+      <CharacterInfoBoard
+        officeState={officeState}
+        agentTools={agentTools}
+        agentStatuses={agentStatuses}
+        subagentCharacters={subagentCharacters}
+        monitorActivityById={monitorActivityById}
+        anchor={characterBoardAnchor}
+        hideMonitorAgent={isPictureInPicture}
+        demoMode={demoMode}
       />
 
       {editor.isEditMode && editor.isDirty && (
@@ -289,10 +431,15 @@ function App() {
         agents={agents}
         agentTools={agentTools}
         subagentCharacters={subagentCharacters}
+        monitorCharacterIds={monitorCharacterIds}
+        monitorActivityById={monitorActivityById}
+        agentLabelFontPx={monitorSettings.agentLabelFontPx}
         containerRef={containerRef}
         zoom={editor.zoom}
         panRef={editor.panRef}
         onCloseAgent={handleCloseAgent}
+        hideMonitorOverlays={isPictureInPicture}
+        demoMode={demoMode}
       />
 
       {isDebugMode && (

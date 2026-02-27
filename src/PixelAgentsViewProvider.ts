@@ -5,18 +5,21 @@ import * as vscode from 'vscode';
 import type { AgentState } from './types.js';
 import {
 	launchNewTerminal,
+	launchExternalAgentTerminal,
 	removeAgent,
 	restoreAgents,
 	persistAgents,
 	sendExistingAgents,
 	sendLayout,
 	getProjectDirPath,
+	isClaudeCliAvailable,
 } from './agentManager.js';
 import { ensureProjectScan } from './fileWatcher.js';
 import { loadFurnitureAssets, sendAssetsToWebview, loadFloorTiles, sendFloorTilesToWebview, loadWallTiles, sendWallTilesToWebview, loadCharacterSprites, sendCharacterSpritesToWebview, loadDefaultLayout } from './assetLoader.js';
-import { WORKSPACE_KEY_AGENT_SEATS, GLOBAL_KEY_SOUND_ENABLED } from './constants.js';
+import { WORKSPACE_KEY_AGENT_SEATS, GLOBAL_KEY_SOUND_ENABLED, GLOBAL_KEY_DEMO_MODE } from './constants.js';
 import { writeLayoutToFile, readLayoutFromFile, watchLayoutFile } from './layoutPersistence.js';
 import type { LayoutWatcher } from './layoutPersistence.js';
+import { MonitorController } from './monitor/monitorController.js';
 
 export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 	nextAgentId = { current: 1 };
@@ -41,8 +44,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 
 	// Cross-window layout sync
 	layoutWatcher: LayoutWatcher | null = null;
+	monitor: MonitorController;
 
-	constructor(private readonly context: vscode.ExtensionContext) {}
+	constructor(private readonly context: vscode.ExtensionContext) {
+		this.monitor = new MonitorController(context);
+	}
 
 	private get extensionUri(): vscode.Uri {
 		return this.context.extensionUri;
@@ -56,8 +62,46 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 		persistAgents(this.agents, this.context);
 	};
 
+	private revealMonitorTerminal(sessionId: string, repoPath: string): boolean {
+		for (const agent of this.agents.values()) {
+			const base = path.basename(agent.jsonlFile, '.jsonl');
+			if (sessionId && base === sessionId) {
+				agent.terminalRef.show();
+				return true;
+			}
+		}
+		if (repoPath) {
+			const expectedProjectDir = getProjectDirPath(repoPath);
+			if (expectedProjectDir) {
+				for (const agent of this.agents.values()) {
+					if (agent.projectDir === expectedProjectDir) {
+						agent.terminalRef.show();
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	private async pickAgentLaunchFolder(): Promise<string | null> {
+		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+		const picked = await vscode.window.showOpenDialog({
+			canSelectFiles: false,
+			canSelectFolders: true,
+			canSelectMany: false,
+			defaultUri: workspaceRoot,
+			openLabel: 'Launch Agent Here',
+		});
+		if (!picked?.[0]) {
+			return null;
+		}
+		return picked[0].fsPath;
+	}
+
 	resolveWebviewView(webviewView: vscode.WebviewView) {
 		this.webviewView = webviewView;
+		this.monitor.setWebview(webviewView.webview);
 		webviewView.webview.options = { enableScripts: true };
 		webviewView.webview.html = getWebviewContent(webviewView.webview, this.extensionUri);
 
@@ -70,6 +114,23 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 					this.jsonlPollTimers, this.projectScanTimer,
 					this.webview, this.persistAgents,
 				);
+			} else if (message.type === 'openAgent') {
+				const launchPath = await this.pickAgentLaunchFolder();
+				if (!launchPath) {
+					return;
+				}
+				const source = typeof message.source === 'string' ? message.source : 'claude';
+				if (source === 'claude') {
+					launchNewTerminal(
+						this.nextAgentId, this.nextTerminalIndex,
+						this.agents, this.activeAgentId, this.knownJsonlFiles,
+						this.fileWatchers, this.pollingTimers, this.waitingTimers, this.permissionTimers,
+						this.jsonlPollTimers, this.projectScanTimer,
+						this.webview, this.persistAgents, launchPath,
+					);
+				} else if (source === 'opencode' || source === 'codex') {
+					launchExternalAgentTerminal(source, this.nextTerminalIndex, launchPath);
+				}
 			} else if (message.type === 'focusAgent') {
 				const agent = this.agents.get(message.id);
 				if (agent) {
@@ -89,7 +150,45 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 				writeLayoutToFile(message.layout as Record<string, unknown>);
 			} else if (message.type === 'setSoundEnabled') {
 				this.context.globalState.update(GLOBAL_KEY_SOUND_ENABLED, message.enabled);
+			} else if (message.type === 'setDemoMode') {
+				this.context.globalState.update(GLOBAL_KEY_DEMO_MODE, Boolean(message.enabled));
+			} else if (message.type === 'setMonitorSettings') {
+				this.monitor.updateSettings(message.settings);
+			} else if (message.type === 'monitorBindRepo') {
+				const source = typeof message.source === 'string' ? message.source : '';
+				const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
+				const repoPath = typeof message.repoPath === 'string' ? message.repoPath : '';
+				if (source && sessionId && repoPath) {
+					this.monitor.bindRepoPath(source, sessionId, repoPath);
+				}
+			} else if (message.type === 'monitorOpenRepo') {
+				const repoPath = typeof message.repoPath === 'string' ? message.repoPath : '';
+				if (repoPath && fs.existsSync(repoPath)) {
+					vscode.env.openExternal(vscode.Uri.file(repoPath));
+				}
+			} else if (message.type === 'monitorChooseRepo') {
+				const source = typeof message.source === 'string' ? message.source : '';
+				const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
+				const uri = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectMany: false, canSelectFiles: false });
+				if (source && sessionId && uri && uri[0]) {
+					this.monitor.bindRepoPath(source, sessionId, uri[0].fsPath);
+				}
+			} else if (message.type === 'monitorCopyText') {
+				const text = typeof message.text === 'string' ? message.text : '';
+				if (text) {
+					await vscode.env.clipboard.writeText(text);
+				}
+			} else if (message.type === 'monitorRevealTerminal') {
+				const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
+				const repoPath = typeof message.repoPath === 'string' ? message.repoPath : '';
+				const found = this.revealMonitorTerminal(sessionId, repoPath);
+				if (!found) {
+					vscode.window.showInformationMessage('Pixel Agents: No mapped terminal found for this session.');
+				}
+			} else if (message.type === 'openClaudeInstallDocs') {
+				void vscode.env.openExternal(vscode.Uri.parse('https://docs.anthropic.com/en/docs/claude-code'));
 			} else if (message.type === 'webviewReady') {
+				this.monitor.start();
 				restoreAgents(
 					this.context,
 					this.nextAgentId, this.nextTerminalIndex,
@@ -100,7 +199,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 				);
 				// Send persisted settings to webview
 				const soundEnabled = this.context.globalState.get<boolean>(GLOBAL_KEY_SOUND_ENABLED, true);
-				this.webview?.postMessage({ type: 'settingsLoaded', soundEnabled });
+				const demoMode = this.context.globalState.get<boolean>(GLOBAL_KEY_DEMO_MODE, false);
+				this.webview?.postMessage({ type: 'settingsLoaded', soundEnabled, demoMode, monitorSettings: this.monitor.getSettings() });
+				this.webview?.postMessage({ type: 'agentLauncherStatus', claudeAvailable: isClaudeCliAvailable() });
+				this.monitor.sendSnapshot();
 
 				// Ensure project scan runs even with no restored agents (to adopt external terminals)
 				const projectDir = getProjectDirPath();
@@ -122,16 +224,31 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 							const extensionPath = this.extensionUri.fsPath;
 							console.log('[Extension] extensionPath:', extensionPath);
 
-							// Check bundled location first: extensionPath/dist/assets/
-							const bundledAssetsDir = path.join(extensionPath, 'dist', 'assets');
 							let assetsRoot: string | null = null;
-							if (fs.existsSync(bundledAssetsDir)) {
-								console.log('[Extension] Found bundled assets at dist/');
-								assetsRoot = path.join(extensionPath, 'dist');
-							} else if (workspaceRoot) {
-								// Fall back to workspace root (development or external assets)
-								console.log('[Extension] Trying workspace for assets...');
-								assetsRoot = workspaceRoot;
+							const assetRootCandidates: Array<{ root: string; label: string }> = [];
+							if (workspaceRoot) {
+								assetRootCandidates.push(
+									{ root: path.join(workspaceRoot, 'webview-ui', 'public'), label: 'webview-ui/public assets/' },
+									{ root: workspaceRoot, label: 'workspace assets/' },
+									{ root: path.join(workspaceRoot, 'dist'), label: 'workspace dist/' },
+								);
+							}
+							assetRootCandidates.push({ root: path.join(extensionPath, 'dist'), label: 'bundled dist/' });
+
+							const hasAssetsDir = (root: string): boolean => fs.existsSync(path.join(root, 'assets'));
+							const hasFurnitureCatalog = (root: string): boolean =>
+								fs.existsSync(path.join(root, 'assets', 'furniture', 'furniture-catalog.json'));
+
+							const catalogCandidate = assetRootCandidates.find((candidate) => hasFurnitureCatalog(candidate.root));
+							if (catalogCandidate) {
+								console.log(`[Extension] Found furniture catalog at ${catalogCandidate.label}`);
+								assetsRoot = catalogCandidate.root;
+							} else {
+								const assetsCandidate = assetRootCandidates.find((candidate) => hasAssetsDir(candidate.root));
+								if (assetsCandidate) {
+									console.log(`[Extension] Found assets at ${assetsCandidate.label}`);
+									assetsRoot = assetsCandidate.root;
+								}
 							}
 
 							if (!assetsRoot) {
@@ -204,6 +321,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 								const wt = await loadWallTiles(distRoot);
 								if (wt && this.webview) {
 									sendWallTilesToWebview(this.webview, wt);
+								}
+								const assets = await loadFurnitureAssets(distRoot);
+								if (assets && this.webview) {
+									console.log('[Extension] ✅ Assets loaded (no projectDir), sending to webview');
+									sendAssetsToWebview(this.webview, assets);
 								}
 							}
 						} catch { /* ignore */ }
@@ -312,6 +434,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	dispose() {
+		this.monitor.dispose();
 		this.layoutWatcher?.dispose();
 		this.layoutWatcher = null;
 		for (const id of [...this.agents.keys()]) {

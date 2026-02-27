@@ -38,6 +38,7 @@ export const CharacterState = {
   IDLE: 'idle',
   WALK: 'walk',
   TYPE: 'type',
+  DRINK: 'drink',
 } as const
 export type CharacterState = (typeof CharacterState)[keyof typeof CharacterState]
 
@@ -90,6 +91,7 @@ export const FurnitureType = {
   WHITEBOARD: 'whiteboard',
   CHAIR: 'chair',
   PC: 'pc',
+  COFFEE: 'coffee',
   LAMP: 'lamp',
 } as const
 export type FurnitureType = (typeof FurnitureType)[keyof typeof FurnitureType]
@@ -173,6 +175,8 @@ export interface Character {
   wanderCount: number
   /** Max wander moves before returning to seat for rest */
   wanderLimit: number
+  drinkTimer: number
+  breakTarget: { col: number; row: number } | null
   /** Whether the agent is actively working */
   isActive: boolean
   /** Assigned seat uid, or null if no seat */

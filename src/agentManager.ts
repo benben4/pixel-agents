@@ -1,11 +1,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawnSync } from 'child_process';
 import * as vscode from 'vscode';
 import type { AgentState, PersistedAgent } from './types.js';
 import { cancelWaitingTimer, cancelPermissionTimer } from './timerManager.js';
 import { startFileWatching, readNewLines, ensureProjectScan } from './fileWatcher.js';
-import { JSONL_POLL_INTERVAL_MS, TERMINAL_NAME_PREFIX, WORKSPACE_KEY_AGENTS, WORKSPACE_KEY_AGENT_SEATS } from './constants.js';
+import {
+	JSONL_POLL_INTERVAL_MS,
+	TERMINAL_NAME_PREFIX,
+	TERMINAL_NAME_PREFIX_OPENCODE,
+	TERMINAL_NAME_PREFIX_CODEX,
+	WORKSPACE_KEY_AGENTS,
+	WORKSPACE_KEY_AGENT_SEATS,
+} from './constants.js';
 import { migrateAndLoadLayout } from './layoutPersistence.js';
 
 export function getProjectDirPath(cwd?: string): string | null {
@@ -29,9 +37,15 @@ export function launchNewTerminal(
 	projectScanTimerRef: { current: ReturnType<typeof setInterval> | null },
 	webview: vscode.Webview | undefined,
 	persistAgents: () => void,
+	cwdOverride?: string,
 ): void {
+	if (!isClaudeCliAvailable()) {
+		vscode.window.showErrorMessage('Pixel Agents: `claude` command not found. Install Claude Code CLI and restart VS Code from a shell where `claude` is available.');
+		return;
+	}
+
 	const idx = nextTerminalIndexRef.current++;
-	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	const cwd = cwdOverride || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 	const terminal = vscode.window.createTerminal({
 		name: `${TERMINAL_NAME_PREFIX} #${idx}`,
 		cwd,
@@ -95,6 +109,41 @@ export function launchNewTerminal(
 		} catch { /* file may not exist yet */ }
 	}, JSONL_POLL_INTERVAL_MS);
 	jsonlPollTimers.set(id, pollTimer);
+}
+
+export function isClaudeCliAvailable(): boolean {
+	return isCommandAvailable('claude');
+}
+
+export function launchExternalAgentTerminal(
+	source: 'opencode' | 'codex',
+	nextTerminalIndexRef: { current: number },
+	cwdOverride?: string,
+): void {
+	const command = source === 'opencode' ? 'opencode' : 'codex';
+	const terminalPrefix = source === 'opencode' ? TERMINAL_NAME_PREFIX_OPENCODE : TERMINAL_NAME_PREFIX_CODEX;
+	if (!isCommandAvailable(command)) {
+		vscode.window.showErrorMessage(`Pixel Agents: \`${command}\` command not found. Install ${terminalPrefix} CLI and restart VS Code from a shell where \`${command}\` is available.`);
+		return;
+	}
+
+	const idx = nextTerminalIndexRef.current++;
+	const cwd = cwdOverride || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	const terminal = vscode.window.createTerminal({
+		name: `${terminalPrefix} #${idx}`,
+		cwd,
+	});
+	terminal.show();
+	terminal.sendText(command);
+}
+
+function isCommandAvailable(command: string): boolean {
+	if (process.platform === 'win32') {
+		const check = spawnSync('where', [command], { encoding: 'utf8' });
+		return check.status === 0;
+	}
+	const check = spawnSync('sh', ['-lc', `command -v ${command}`], { encoding: 'utf8' });
+	return check.status === 0;
 }
 
 export function removeAgent(

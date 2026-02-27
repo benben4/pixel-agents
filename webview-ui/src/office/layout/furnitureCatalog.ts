@@ -8,7 +8,9 @@ import {
   WHITEBOARD_SPRITE,
   CHAIR_SPRITE,
   PC_SPRITE,
+  COFFEE_MUG_SPRITE,
   LAMP_SPRITE,
+  detailizeSprite,
 } from '../sprites/spriteData.js'
 
 export interface LoadedAssetData {
@@ -39,14 +41,15 @@ export interface CatalogEntryWithCategory extends FurnitureCatalogEntry {
 
 export const FURNITURE_CATALOG: CatalogEntryWithCategory[] = [
   // ── Original hand-drawn sprites ──
-  { type: FurnitureType.DESK,       label: 'Desk',       footprintW: 2, footprintH: 2, sprite: DESK_SQUARE_SPRITE,  isDesk: true,  category: 'desks' },
-  { type: FurnitureType.BOOKSHELF,  label: 'Bookshelf',  footprintW: 1, footprintH: 2, sprite: BOOKSHELF_SPRITE,    isDesk: false, category: 'storage' },
-  { type: FurnitureType.PLANT,      label: 'Plant',      footprintW: 1, footprintH: 1, sprite: PLANT_SPRITE,        isDesk: false, category: 'decor' },
-  { type: FurnitureType.COOLER,     label: 'Cooler',     footprintW: 1, footprintH: 1, sprite: COOLER_SPRITE,       isDesk: false, category: 'misc' },
-  { type: FurnitureType.WHITEBOARD, label: 'Whiteboard', footprintW: 2, footprintH: 1, sprite: WHITEBOARD_SPRITE,   isDesk: false, category: 'decor' },
-  { type: FurnitureType.CHAIR,      label: 'Chair',      footprintW: 1, footprintH: 1, sprite: CHAIR_SPRITE,        isDesk: false, category: 'chairs' },
-  { type: FurnitureType.PC,         label: 'PC',         footprintW: 1, footprintH: 1, sprite: PC_SPRITE,           isDesk: false, category: 'electronics' },
-  { type: FurnitureType.LAMP,       label: 'Lamp',       footprintW: 1, footprintH: 1, sprite: LAMP_SPRITE,         isDesk: false, category: 'decor' },
+  { type: FurnitureType.DESK,       label: 'Desk',       footprintW: 2, footprintH: 2, sprite: detailizeSprite(DESK_SQUARE_SPRITE),  isDesk: true,  category: 'desks' },
+  { type: FurnitureType.BOOKSHELF,  label: 'Bookshelf',  footprintW: 1, footprintH: 2, sprite: detailizeSprite(BOOKSHELF_SPRITE),    isDesk: false, category: 'storage' },
+  { type: FurnitureType.PLANT,      label: 'Plant',      footprintW: 1, footprintH: 1, sprite: detailizeSprite(PLANT_SPRITE),        isDesk: false, category: 'decor' },
+  { type: FurnitureType.COOLER,     label: 'Cooler',     footprintW: 1, footprintH: 1, sprite: detailizeSprite(COOLER_SPRITE),       isDesk: false, category: 'misc' },
+  { type: FurnitureType.WHITEBOARD, label: 'Whiteboard', footprintW: 2, footprintH: 1, sprite: detailizeSprite(WHITEBOARD_SPRITE),   isDesk: false, category: 'decor' },
+  { type: FurnitureType.CHAIR,      label: 'Chair',      footprintW: 1, footprintH: 1, sprite: detailizeSprite(CHAIR_SPRITE),        isDesk: false, category: 'chairs' },
+  { type: FurnitureType.PC,         label: 'PC',         footprintW: 1, footprintH: 1, sprite: detailizeSprite(PC_SPRITE),           isDesk: false, category: 'electronics', canPlaceOnSurfaces: true },
+  { type: FurnitureType.COFFEE,     label: 'Coffee',     footprintW: 1, footprintH: 1, sprite: detailizeSprite(COFFEE_MUG_SPRITE),   isDesk: false, category: 'decor', canPlaceOnSurfaces: true },
+  { type: FurnitureType.LAMP,       label: 'Lamp',       footprintW: 1, footprintH: 1, sprite: detailizeSprite(LAMP_SPRITE),         isDesk: false, category: 'decor' },
 
 ]
 
@@ -80,7 +83,7 @@ let dynamicCategories: FurnitureCategory[] | null = null
 /**
  * Build catalog from loaded assets. Returns true if successful.
  * Once built, all getCatalog* functions use the dynamic catalog.
- * Uses ONLY custom assets (excludes hardcoded furniture when assets are loaded).
+ * Merges custom assets with built-in furniture entries.
  */
 export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   if (!assets?.catalog || !assets?.sprites) return false
@@ -97,7 +100,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
       label: asset.label,
       footprintW: asset.footprintW,
       footprintH: asset.footprintH,
-      sprite,
+      sprite: detailizeSprite(sprite),
       isDesk: asset.isDesk,
       category: asset.category as FurnitureCategory,
       ...(asset.orientation ? { orientation: asset.orientation } : {}),
@@ -209,8 +212,9 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     if (asset.state === 'on') onStateIds.add(asset.id)
   }
 
-  // Store full internal catalog (all variants — for getCatalogEntry lookups)
-  internalCatalog = allEntries
+  const customTypes = new Set(allEntries.map((entry) => entry.type))
+  const builtInFallbackEntries = FURNITURE_CATALOG.filter((entry) => !customTypes.has(entry.type))
+  internalCatalog = [...allEntries, ...builtInFallbackEntries]
 
   // Visible catalog: exclude non-front variants and "on" state variants
   const visibleEntries = allEntries.filter((e) => !nonFrontIds.has(e.type) && !onStateIds.has(e.type))
@@ -225,20 +229,25 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     }
   }
 
-  dynamicCatalog = visibleEntries
-  dynamicCategories = Array.from(new Set(visibleEntries.map((e) => e.category)))
+  const visibleTypes = new Set(visibleEntries.map((entry) => entry.type))
+  const builtInVisibleEntries = FURNITURE_CATALOG.filter((entry) => !visibleTypes.has(entry.type))
+  dynamicCatalog = [...builtInVisibleEntries, ...visibleEntries]
+  dynamicCategories = Array.from(new Set(dynamicCatalog.map((e) => e.category)))
     .filter((c): c is FurnitureCategory => !!c)
     .sort()
 
   const rotGroupCount = new Set(Array.from(rotationGroups.values())).size
-  console.log(`✓ Built dynamic catalog with ${allEntries.length} assets (${visibleEntries.length} visible, ${rotGroupCount} rotation groups, ${stateGroups.size / 2} state pairs)`)
+  console.log(`✓ Built dynamic catalog with ${allEntries.length} custom assets + ${builtInVisibleEntries.length} built-ins (${dynamicCatalog.length} visible, ${rotGroupCount} rotation groups, ${stateGroups.size / 2} state pairs)`)
   return true
 }
 
 export function getCatalogEntry(type: string): CatalogEntryWithCategory | undefined {
   // Check internal catalog first (includes all variants, e.g., non-front rotations)
   if (internalCatalog) {
-    return internalCatalog.find((e) => e.type === type)
+    const fromCustom = internalCatalog.find((e) => e.type === type)
+    if (fromCustom) return fromCustom
+    // Fallback to built-in entries when custom catalog does not include a legacy type.
+    return FURNITURE_CATALOG.find((e) => e.type === type)
   }
   const catalog = dynamicCatalog || FURNITURE_CATALOG
   return catalog.find((e) => e.type === type)

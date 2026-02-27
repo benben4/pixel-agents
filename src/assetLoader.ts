@@ -68,21 +68,33 @@ export async function loadFurnitureAssets(
     console.log('📦 Loading furniture assets from:', catalogPath)
 
     const catalogContent = fs.readFileSync(catalogPath, 'utf-8')
-    const catalogData = JSON.parse(catalogContent)
-    const catalog: FurnitureAsset[] = catalogData.assets || []
+    const catalogData = JSON.parse(catalogContent) as { assets?: FurnitureAsset[] } | FurnitureAsset[]
+    const catalog: FurnitureAsset[] = Array.isArray(catalogData)
+      ? catalogData
+      : Array.isArray(catalogData.assets)
+        ? catalogData.assets
+        : []
 
     const sprites = new Map<string, string[][]>()
+    const catalogDir = path.dirname(catalogPath)
 
     for (const asset of catalog) {
       try {
-        // Ensure file path includes 'assets/' prefix if not already present
-        let filePath = asset.file
-        if (!filePath.startsWith('assets/')) {
-          filePath = `assets/${filePath}`
+        const rawFilePath = typeof asset.file === 'string' ? asset.file : ''
+        if (!rawFilePath) {
+          console.warn(`  ⚠️  Asset ${asset.id} has empty file path`)
+          continue
         }
-        const assetPath = path.join(workspaceRoot, filePath)
+        const normalizedFilePath = rawFilePath.replace(/^\/+/, '')
+        const pathCandidates = [
+          path.join(workspaceRoot, normalizedFilePath),
+          path.join(workspaceRoot, 'assets', normalizedFilePath),
+          path.join(catalogDir, normalizedFilePath),
+          path.join(catalogDir, path.basename(normalizedFilePath)),
+        ]
+        const assetPath = pathCandidates.find((candidate) => fs.existsSync(candidate))
 
-        if (!fs.existsSync(assetPath)) {
+        if (!assetPath) {
           console.warn(`  ⚠️  Asset file not found: ${asset.file}`)
           continue
         }

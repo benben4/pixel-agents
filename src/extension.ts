@@ -23,6 +23,19 @@ export function activate(context: vscode.ExtensionContext) {
 			provider.exportDefaultLayout();
 		})
 	);
+
+	if (context.extensionMode === vscode.ExtensionMode.Development) {
+		let attempts = 0;
+		const timer = setInterval(() => {
+			attempts += 1;
+			void vscode.commands.executeCommand('workbench.view.extension.pixel-agents-panel');
+			void vscode.commands.executeCommand(COMMAND_SHOW_PANEL);
+			if (attempts >= 4) {
+				clearInterval(timer);
+			}
+		}, 500);
+		context.subscriptions.push({ dispose: () => clearInterval(timer) });
+	}
 }
 
 export function deactivate() {

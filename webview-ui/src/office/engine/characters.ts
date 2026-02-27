@@ -12,6 +12,9 @@ import {
   WANDER_MOVES_BEFORE_REST_MAX,
   SEAT_REST_MIN_SEC,
   SEAT_REST_MAX_SEC,
+  BREAK_ROOM_VISIT_CHANCE,
+  COFFEE_BREAK_MIN_SEC,
+  COFFEE_BREAK_MAX_SEC,
 } from '../../constants.js'
 
 /** Tools that show reading animation instead of typing */
@@ -68,6 +71,8 @@ export function createCharacter(
     wanderTimer: 0,
     wanderCount: 0,
     wanderLimit: randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX),
+    drinkTimer: 0,
+    breakTarget: null,
     isActive: true,
     seatId,
     bubbleType: null,
@@ -88,6 +93,7 @@ export function updateCharacter(
   seats: Map<string, Seat>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
+  breakTiles: Array<{ col: number; row: number }>,
 ): void {
   ch.frameTimer += dt
 
@@ -120,6 +126,8 @@ export function updateCharacter(
       if (ch.seatTimer < 0) ch.seatTimer = 0 // clear turn-end sentinel
       // If became active, pathfind to seat
       if (ch.isActive) {
+        ch.breakTarget = null
+        ch.drinkTimer = 0
         if (!ch.seatId) {
           // No seat assigned — type in place
           ch.state = CharacterState.TYPE
@@ -149,6 +157,30 @@ export function updateCharacter(
       // Countdown wander timer
       ch.wanderTimer -= dt
       if (ch.wanderTimer <= 0) {
+        const shouldVisitBreakRoom =
+          breakTiles.length > 0 && (ch.breakTarget !== null || Math.random() < BREAK_ROOM_VISIT_CHANCE)
+        if (shouldVisitBreakRoom) {
+          const breakTarget = pickNearestReachableTarget(
+            ch.tileCol,
+            ch.tileRow,
+            breakTiles,
+            tileMap,
+            blockedTiles,
+          )
+          if (breakTarget) {
+            const path = findPath(ch.tileCol, ch.tileRow, breakTarget.col, breakTarget.row, tileMap, blockedTiles)
+            if (path.length > 0) {
+              ch.breakTarget = breakTarget
+              ch.path = path
+              ch.moveProgress = 0
+              ch.state = CharacterState.WALK
+              ch.frame = 0
+              ch.frameTimer = 0
+              ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC)
+              break
+            }
+          }
+        }
         // Check if we've wandered enough — return to seat for a rest
         if (ch.wanderCount >= ch.wanderLimit && ch.seatId) {
           const seat = seats.get(ch.seatId)
@@ -195,6 +227,8 @@ export function updateCharacter(
         ch.y = center.y
 
         if (ch.isActive) {
+          ch.breakTarget = null
+          ch.drinkTimer = 0
           if (!ch.seatId) {
             // No seat — type in place
             ch.state = CharacterState.TYPE
@@ -208,6 +242,13 @@ export function updateCharacter(
             }
           }
         } else {
+          if (ch.breakTarget && ch.tileCol === ch.breakTarget.col && ch.tileRow === ch.breakTarget.row) {
+            ch.state = CharacterState.DRINK
+            ch.drinkTimer = randomRange(COFFEE_BREAK_MIN_SEC, COFFEE_BREAK_MAX_SEC)
+            ch.frame = 0
+            ch.frameTimer = 0
+            break
+          }
           // Check if arrived at assigned seat — sit down for a rest before wandering again
           if (ch.seatId) {
             const seat = seats.get(ch.seatId)
@@ -274,6 +315,34 @@ export function updateCharacter(
       }
       break
     }
+
+    case CharacterState.DRINK: {
+      if (ch.frameTimer >= TYPE_FRAME_DURATION_SEC) {
+        ch.frameTimer -= TYPE_FRAME_DURATION_SEC
+        ch.frame = (ch.frame + 1) % 2
+      }
+
+      if (ch.isActive) {
+        ch.breakTarget = null
+        ch.drinkTimer = 0
+        ch.state = CharacterState.IDLE
+        ch.frame = 0
+        ch.frameTimer = 0
+        ch.wanderTimer = 0
+        break
+      }
+
+      ch.drinkTimer -= dt
+      if (ch.drinkTimer <= 0) {
+        ch.drinkTimer = 0
+        ch.breakTarget = null
+        ch.state = CharacterState.IDLE
+        ch.frame = 0
+        ch.frameTimer = 0
+        ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC)
+      }
+      break
+    }
   }
 }
 
@@ -289,9 +358,32 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
       return sprites.walk[ch.dir][ch.frame % 4]
     case CharacterState.IDLE:
       return sprites.walk[ch.dir][1]
+    case CharacterState.DRINK:
+      return sprites.reading[ch.dir][ch.frame % 2]
     default:
       return sprites.walk[ch.dir][1]
   }
+}
+
+function pickNearestReachableTarget(
+  fromCol: number,
+  fromRow: number,
+  targets: Array<{ col: number; row: number }>,
+  tileMap: TileTypeVal[][],
+  blockedTiles: Set<string>,
+): { col: number; row: number } | null {
+  let best: { col: number; row: number } | null = null
+  let bestDist = Infinity
+  for (const target of targets) {
+    const dist = Math.abs(target.col - fromCol) + Math.abs(target.row - fromRow)
+    if (dist >= bestDist) continue
+    const path = findPath(fromCol, fromRow, target.col, target.row, tileMap, blockedTiles)
+    if (path.length > 0) {
+      best = target
+      bestDist = dist
+    }
+  }
+  return best
 }
 
 function randomRange(min: number, max: number): number {

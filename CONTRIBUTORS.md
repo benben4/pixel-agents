@@ -35,6 +35,14 @@ This starts parallel watchers for both the extension backend (esbuild) and TypeS
 
 > **Note:** The webview (Vite) is not included in `watch` — after changing webview code, run `npm run build:webview` or the full `npm run build`.
 
+### Documentation Updates
+
+When behavior changes, update docs in the same PR:
+
+- `README.md` for user-facing behavior and setup
+- `CLAUDE.md` for architecture and implementation reference
+- `webview-ui/README.md` for frontend runtime/build details
+
 ### Project Structure
 
 | Directory | Description |

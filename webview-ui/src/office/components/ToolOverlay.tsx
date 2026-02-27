@@ -3,17 +3,30 @@ import type { ToolActivity } from '../types.js'
 import type { OfficeState } from '../engine/officeState.js'
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js'
 import { TILE_SIZE, CharacterState } from '../types.js'
-import { TOOL_OVERLAY_VERTICAL_OFFSET, CHARACTER_SITTING_OFFSET_PX } from '../../constants.js'
+import {
+  TOOL_OVERLAY_VERTICAL_OFFSET,
+  TOOL_OVERLAY_REFRESH_MS,
+  CHARACTER_SITTING_OFFSET_PX,
+  MONITOR_AGENT_ID_BASE,
+  MONITOR_AGENT_LABEL_FONT_DEFAULT_PX,
+  MONITOR_AGENT_LABEL_FONT_MAX_PX,
+  MONITOR_AGENT_LABEL_FONT_MIN_PX,
+} from '../../constants.js'
 
 interface ToolOverlayProps {
   officeState: OfficeState
   agents: number[]
   agentTools: Record<number, ToolActivity[]>
   subagentCharacters: SubagentCharacter[]
+  monitorCharacterIds: number[]
+  monitorActivityById: Record<number, { state: 'idle' | 'thinking' | 'running' | 'waiting' | 'done' | 'error'; text: string }>
+  agentLabelFontPx: number
   containerRef: React.RefObject<HTMLDivElement | null>
   zoom: number
   panRef: React.RefObject<{ x: number; y: number }>
   onCloseAgent: (id: number) => void
+  hideMonitorOverlays?: boolean
+  demoMode?: boolean
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -40,25 +53,34 @@ function getActivityText(
   return 'Idle'
 }
 
+function monitorTextColor(state: 'idle' | 'thinking' | 'running' | 'waiting' | 'done' | 'error'): string {
+  if (state === 'running' || state === 'thinking') return '#74d680'
+  if (state === 'error') return '#ff6b6b'
+  if (state === 'waiting') return '#ffd166'
+  return '#ffffff'
+}
+
 export function ToolOverlay({
   officeState,
   agents,
   agentTools,
   subagentCharacters,
+  monitorCharacterIds,
+  monitorActivityById,
+  agentLabelFontPx,
   containerRef,
   zoom,
   panRef,
   onCloseAgent,
+  hideMonitorOverlays = false,
+  demoMode = false,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0)
   useEffect(() => {
-    let rafId = 0
-    const tick = () => {
+    const timer = window.setInterval(() => {
       setTick((n) => n + 1)
-      rafId = requestAnimationFrame(tick)
-    }
-    rafId = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafId)
+    }, TOOL_OVERLAY_REFRESH_MS)
+    return () => clearInterval(timer)
   }, [])
 
   const el = containerRef.current
@@ -75,6 +97,14 @@ export function ToolOverlay({
 
   const selectedId = officeState.selectedAgentId
   const hoveredId = officeState.hoveredAgentId
+  const monitorSet = new Set(monitorCharacterIds)
+  const baseLabelFontPx = Math.min(
+    MONITOR_AGENT_LABEL_FONT_MAX_PX,
+    Math.max(
+      MONITOR_AGENT_LABEL_FONT_MIN_PX,
+      Number.isFinite(agentLabelFontPx) ? Math.round(agentLabelFontPx) : MONITOR_AGENT_LABEL_FONT_DEFAULT_PX,
+    ),
+  )
 
   // All character IDs
   const allIds = [...agents, ...subagentCharacters.map((s) => s.id)]
@@ -88,9 +118,19 @@ export function ToolOverlay({
         const isSelected = selectedId === id
         const isHovered = hoveredId === id
         const isSub = ch.isSubagent
+        const isMonitor = monitorSet.has(id) || id >= MONITOR_AGENT_ID_BASE
+        if (isMonitor && hideMonitorOverlays) return null
+        const monitorActivity = isMonitor ? monitorActivityById[id] : undefined
+        const shouldAlwaysShowMonitor = Boolean(
+          monitorActivity &&
+          (monitorActivity.state === 'running' ||
+            monitorActivity.state === 'thinking' ||
+            monitorActivity.state === 'waiting' ||
+            monitorActivity.state === 'error'),
+        )
 
-        // Only show for hovered or selected agents
-        if (!isSelected && !isHovered) return null
+        const shouldAlwaysShowDemo = demoMode && !isSub
+        if (!isSelected && !isHovered && !shouldAlwaysShowMonitor && !shouldAlwaysShowDemo) return null
 
         // Position above character
         const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0
@@ -107,6 +147,10 @@ export function ToolOverlay({
             const sub = subagentCharacters.find((s) => s.id === id)
             activityText = sub ? sub.label : 'Subtask'
           }
+        } else if (demoMode) {
+          activityText = ch.currentTool ?? 'Demo: Working'
+        } else if (isMonitor && monitorActivity) {
+          activityText = monitorActivity.text
         } else {
           activityText = getActivityText(id, agentTools, ch.isActive)
         }
@@ -118,11 +162,19 @@ export function ToolOverlay({
         const isActive = ch.isActive
 
         let dotColor: string | null = null
-        if (hasPermission) {
+        if (demoMode && !isSub) {
+          dotColor = 'var(--pixel-status-active)'
+        } else if (hasPermission) {
           dotColor = 'var(--pixel-status-permission)'
         } else if (isActive && hasActiveTools) {
           dotColor = 'var(--pixel-status-active)'
         }
+
+        const labelColor = demoMode && !isSub
+          ? 'var(--pixel-status-active)'
+          : isMonitor && monitorActivity
+            ? monitorTextColor(monitorActivity.state)
+            : 'var(--vscode-foreground, var(--pixel-text))'
 
         return (
           <div
@@ -169,16 +221,16 @@ export function ToolOverlay({
               )}
               <span
                 style={{
-                  fontSize: isSub ? '20px' : '22px',
+                  fontSize: `${isSub ? Math.max(MONITOR_AGENT_LABEL_FONT_MIN_PX, baseLabelFontPx - 2) : baseLabelFontPx}px`,
                   fontStyle: isSub ? 'italic' : undefined,
-                  color: 'var(--vscode-foreground)',
+                  color: labelColor,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                 }}
               >
                 {activityText}
               </span>
-              {isSelected && !isSub && (
+              {isSelected && !isSub && !isMonitor && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()

@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import { SettingsModal } from './SettingsModal.js'
+import type { MonitorSettings } from '../hooks/useExtensionMessages.js'
 
 interface BottomToolbarProps {
   isEditMode: boolean
-  onOpenClaude: () => void
+  onOpenAgent: (source: 'claude' | 'opencode' | 'codex') => void
   onToggleEditMode: () => void
   isDebugMode: boolean
   onToggleDebugMode: () => void
+  monitorSettings: MonitorSettings
+  onUpdateMonitorSettings: (settings: MonitorSettings) => void
+  demoMode: boolean
+  onUpdateDemoMode: (enabled: boolean) => void
 }
 
 const panelStyle: React.CSSProperties = {
@@ -43,18 +48,23 @@ const btnActive: React.CSSProperties = {
 
 export function BottomToolbar({
   isEditMode,
-  onOpenClaude,
+  onOpenAgent,
   onToggleEditMode,
   isDebugMode,
   onToggleDebugMode,
+  monitorSettings,
+  onUpdateMonitorSettings,
+  demoMode,
+  onUpdateDemoMode,
 }: BottomToolbarProps) {
   const [hovered, setHovered] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false)
 
   return (
     <div style={panelStyle}>
       <button
-        onClick={onOpenClaude}
+        onClick={() => setIsAgentMenuOpen((v) => !v)}
         onMouseEnter={() => setHovered('agent')}
         onMouseLeave={() => setHovered(null)}
         style={{
@@ -67,9 +77,31 @@ export function BottomToolbar({
           border: '2px solid var(--pixel-agent-border)',
           color: 'var(--pixel-agent-text)',
         }}
+        title="Create agent terminal"
       >
         + Agent
       </button>
+      {isAgentMenuOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 10,
+            bottom: 56,
+            zIndex: 'var(--pixel-controls-z)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            background: 'var(--pixel-bg)',
+            border: '2px solid var(--pixel-border)',
+            boxShadow: 'var(--pixel-shadow)',
+            padding: 4,
+          }}
+        >
+          <button style={btnBase} onClick={() => { onOpenAgent('claude'); setIsAgentMenuOpen(false) }}>Claude Code</button>
+          <button style={btnBase} onClick={() => { onOpenAgent('opencode'); setIsAgentMenuOpen(false) }}>OpenCode</button>
+          <button style={btnBase} onClick={() => { onOpenAgent('codex'); setIsAgentMenuOpen(false) }}>Codex</button>
+        </div>
+      )}
       <button
         onClick={onToggleEditMode}
         onMouseEnter={() => setHovered('edit')}
@@ -108,6 +140,10 @@ export function BottomToolbar({
           onClose={() => setIsSettingsOpen(false)}
           isDebugMode={isDebugMode}
           onToggleDebugMode={onToggleDebugMode}
+          monitorSettings={monitorSettings}
+          onUpdateMonitorSettings={onUpdateMonitorSettings}
+          demoMode={demoMode}
+          onUpdateDemoMode={onUpdateDemoMode}
         />
       </div>
     </div>
